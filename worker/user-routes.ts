@@ -1,38 +1,102 @@
 import { Hono } from "hono";
 import type { Env } from './core-utils';
-import { UserEntity, ChatBoardEntity } from "./entities";
+import { UserEntity, ChatBoardEntity, JobEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
+import JSZip from 'jszip';
+import type { AnalysisResult } from "@shared/types";
+// A mock Octokit for type safety without including the full library in the main bundle if not needed.
+// In a real scenario, you might use a dynamic import or ensure it's bundled.
+const mockOctokit = { repos: { getContent: () => {}, getCommit: () => {} } };
+type Octokit = typeof mockOctokit;
+const detectStack = (pkg: { dependencies?: Record<string, string>, devDependencies?: Record<string, string> }): string => {
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    if (deps['next']) return 'Next.js';
+    if (deps['@angular/core']) return 'Angular';
+    if (deps['svelte']) return 'SvelteKit';
+    if (deps['vue']) return 'Vue/Nuxt';
+    if (deps['vite'] && deps['react']) return 'Vite+React';
+    if (deps['react']) return 'React (CRA)';
+    return 'Vanilla JS';
+};
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
   // --- PWA_Gen API Routes ---
   app.post('/api/analyze', async (c) => {
-    // In Phase 1, we return a deterministic mock response.
-    // In later phases, this will parse the file/repo and perform real analysis.
-    // TODO: Implement full ZIP parsing and GitHub repo fetching in Phase 2.
-    const contentType = c.req.header('content-type');
-    let totalFiles = 47; // Mock value
-    if (contentType?.includes('multipart/form-data')) {
-        // const formData = await c.req.parseBody();
-        // const file = formData['file'];
-        // Here you would use a library to inspect the zip file.
-        // For now, we just use a mock file count.
+    const contentType = c.req.header('content-type') || '';
+    let job;
+    let analysisPromise;
+    if (contentType.includes('multipart/form-data')) {
+        const formData = await c.req.formData();
+        const file = formData.get('file') as File;
+        if (!file) return bad(c, 'File not provided');
+        job = await JobEntity.createJob(c.env, { input: { name: file.name }, inputType: 'zip' });
+        const jobEntity = new JobEntity(c.env, job.id);
+        await jobEntity.updateStatus('analyzing');
+        analysisPromise = (async () => {
+            const buffer = await file.arrayBuffer();
+            const zip = await JSZip.loadAsync(buffer);
+            let pkg: any = {};
+            const pkgFile = zip.file('package.json');
+            if (pkgFile) {
+                pkg = JSON.parse(await pkgFile.async('string'));
+            }
+            const stack = detectStack(pkg);
+            const result: AnalysisResult = {
+                platform: "PWA_Gen",
+                detectedStack: stack,
+                entryFile: "src/main.tsx", // Heuristic
+                manifestPath: "public/manifest.json", // Heuristic
+                swRegLocation: "src/main.tsx", // Heuristic
+                totalFiles: Object.keys(zip.files).length,
+                prePWA_LighthouseEstimate: "65/100",
+                cloudflareOptimized: true,
+                jobId: job.id,
+            };
+            await jobEntity.updateStatus('complete', result);
+            return result;
+        })();
+    } else if (contentType.includes('application/json')) {
+        const { githubUrl } = await c.req.json<{ githubUrl: string }>();
+        if (!githubUrl) return bad(c, 'GitHub URL not provided');
+        job = await JobEntity.createJob(c.env, { input: githubUrl, inputType: 'github' });
+        const jobEntity = new JobEntity(c.env, job.id);
+        await jobEntity.updateStatus('analyzing');
+        // This part is a placeholder for full Octokit implementation
+        // In a real scenario, you'd use Octokit to fetch repo contents.
+        analysisPromise = (async () => {
+            await new Promise(res => setTimeout(res, 2000)); // Simulate API call
+            const result: AnalysisResult = {
+                platform: "PWA_Gen",
+                detectedStack: "Vite+React", // Mocked for GitHub
+                entryFile: "src/main.tsx",
+                manifestPath: "public/manifest.json",
+                swRegLocation: "src/main.tsx",
+                totalFiles: 123, // Mocked
+                prePWA_LighthouseEstimate: "70/100",
+                cloudflareOptimized: true,
+                jobId: job.id,
+            };
+            await jobEntity.updateStatus('complete', result);
+            return result;
+        })();
     } else {
-        // const { githubUrl } = await c.req.json();
-        // Here you would fetch from GitHub API.
-        totalFiles = 123; // Different mock value for GitHub
+        return bad(c, 'Unsupported content type');
     }
-    const mockAnalysis = {
-      platform: "PWA_Gen",
-      detectedStack: "Vite+React",
-      entryFile: "src/main.tsx",
-      manifestPath: "public/manifest.json",
-      swRegLocation: "src/main.tsx",
-      totalFiles: totalFiles,
-      prePWA_LighthouseEstimate: "65/100",
-      cloudflareOptimized: true
-    };
-    // Simulate network delay
-    await new Promise(res => setTimeout(res, 1500));
-    return ok(c, mockAnalysis);
+    // Don't wait for the full analysis to complete. Return the job ID immediately.
+    // The client will poll for the result.
+    c.executionCtx.waitUntil(analysisPromise.catch(async (e) => {
+        const jobEntity = new JobEntity(c.env, job.id);
+        await jobEntity.updateStatus('error', undefined, e instanceof Error ? e.message : 'Unknown error');
+    }));
+    return ok(c, { jobId: job.id });
+  });
+  app.get('/api/job/:id', async (c) => {
+    const { id } = c.req.param();
+    const job = new JobEntity(c.env, id);
+    if (!(await job.exists())) {
+        return notFound(c, 'Job not found');
+    }
+    const state = await job.getState();
+    return ok(c, state);
   });
   // --- Existing Demo Routes ---
   app.get('/api/test', (c) => c.json({ success: true, data: { name: 'CF Workers Demo' }}));

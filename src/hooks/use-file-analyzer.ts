@@ -1,54 +1,87 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api-client';
-export interface AnalysisResult {
-  platform: string;
-  detectedStack: string;
-  entryFile: string;
-  manifestPath: string;
-  swRegLocation: string;
-  totalFiles: number;
-  prePWA_LighthouseEstimate: string;
-  cloudflareOptimized: boolean;
-}
+import type { AnalysisResult, JobState } from '@shared/types';
 export function useFileAnalyzer() {
-  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [job, setJob] = useState<JobState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const analyze = useCallback(async (input: File | string) => {
+  const pollingInterval = useRef<NodeJS.Timeout | null>(null);
+  const stopPolling = () => {
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+      pollingInterval.current = null;
+    }
+  };
+  const pollJobStatus = useCallback((jobId: string) => {
+    stopPolling(); // Ensure no multiple pollers
+    pollingInterval.current = setInterval(async () => {
+      try {
+        const updatedJob = await api<JobState>(`/api/job/${jobId}`);
+        setJob(updatedJob);
+        if (updatedJob.status === 'complete' || updatedJob.status === 'error') {
+          stopPolling();
+          setIsLoading(false);
+          if (updatedJob.status === 'error') {
+            setError(updatedJob.error || 'Analysis failed');
+          }
+        }
+      } catch (err) {
+        setError('Failed to poll job status.');
+        stopPolling();
+        setIsLoading(false);
+      }
+    }, 2000);
+  }, []);
+  const analyze = useCallback(async (input: File | string, token?: string | null) => {
     setIsLoading(true);
     setError(null);
-    setResult(null);
+    setJob(null);
+    stopPolling();
     try {
-      let data: AnalysisResult;
+      let response: { jobId: string };
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
       if (typeof input === 'string') {
-        // GitHub URL
-        data = await api<AnalysisResult>('/api/analyze', {
+        headers['Content-Type'] = 'application/json';
+        response = await api<{ jobId: string }>('/api/analyze', {
           method: 'POST',
+          headers,
           body: JSON.stringify({ githubUrl: input }),
         });
       } else {
-        // File upload
         const formData = new FormData();
         formData.append('file', input);
         const res = await fetch('/api/analyze', {
           method: 'POST',
+          headers,
           body: formData,
         });
         const json = await res.json();
         if (!res.ok || !json.success) {
           throw new Error(json.error || 'Analysis failed');
         }
-        data = json.data;
+        response = json.data;
       }
-      setResult(data);
-      return data;
+      if (response.jobId) {
+        setJob({ id: response.jobId, status: 'pending' } as JobState); // Initial state
+        pollJobStatus(response.jobId);
+      } else {
+        throw new Error('Analysis did not return a job ID.');
+      }
     } catch (err) {
       const e = err as Error;
       setError(e.message);
-      throw e;
-    } finally {
       setIsLoading(false);
+      throw e;
     }
+  }, [pollJobStatus]);
+  const reset = useCallback(() => {
+    stopPolling();
+    setJob(null);
+    setIsLoading(false);
+    setError(null);
   }, []);
-  return { result, isLoading, error, analyze };
+  return { result: job?.analysis ?? null, job, isLoading, error, analyze, reset };
 }

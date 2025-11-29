@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { Github, Download, UploadCloud, Zap, CheckCircle, Package, Bot } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Github, Download, Package, Bot, Zap } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -11,57 +11,84 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { UploadDropzone } from '@/components/UploadDropzone';
 import { Stepper } from '@/components/Stepper';
-import { useFileAnalyzer, AnalysisResult } from '@/hooks/use-file-analyzer';
+import { useFileAnalyzer } from '@/hooks/use-file-analyzer';
+import { useGithubOAuth } from '@/hooks/use-github-oauth';
+import type { AnalysisResult } from '@shared/types';
 const MotionCard = motion(Card);
 export function HomePage() {
   const [analysisInput, setAnalysisInput] = useState<File | string | null>(null);
-  const { result, isLoading, error, analyze } = useFileAnalyzer();
+  const { result, job, isLoading, error, analyze, reset } = useFileAnalyzer();
+  const { login, logout, token, isAuthenticated } = useGithubOAuth();
   const [activeStep, setActiveStep] = useState(0);
   const [progress, setProgress] = useState(0);
-  const handleAnalyze = useCallback(async (input: File | string) => {
-    setAnalysisInput(input);
-    setActiveStep(0);
-    setProgress(10);
-    try {
-      toast.info('Analyzing project...', { id: 'analysis' });
-      await analyze(input);
-      setProgress(25);
-      setActiveStep(1);
-      toast.success('Analysis complete!', { id: 'analysis' });
-      setProgress(50);
-      setActiveStep(2);
-      setTimeout(() => {
-        setProgress(75);
-        setActiveStep(3);
-      }, 800);
-       setTimeout(() => {
-        setProgress(100);
-      }, 1200);
-    } catch (e) {
-      const err = e as Error;
-      toast.error(err.message || 'Analysis failed', { id: 'analysis' });
-      setProgress(0);
-      setActiveStep(0);
+  useEffect(() => {
+    if (job) {
+      switch (job.status) {
+        case 'pending':
+          setActiveStep(0);
+          setProgress(10);
+          break;
+        case 'analyzing':
+          setActiveStep(1);
+          setProgress(25);
+          break;
+        case 'complete':
+          setActiveStep(2);
+          setProgress(50);
+          setTimeout(() => {
+            setActiveStep(3);
+            setProgress(75);
+          }, 500);
+          setTimeout(() => setProgress(100), 1000);
+          break;
+        case 'error':
+          setActiveStep(0);
+          setProgress(0);
+          toast.error(job.error || 'An unknown error occurred.');
+          break;
+      }
     }
-  }, [analyze]);
+  }, [job]);
+  const handleAnalyze = useCallback(async (input: File | string) => {
+    if (typeof input === 'string' && !isAuthenticated) {
+      toast.error('Please connect your GitHub account to analyze a repository.', {
+        action: {
+          label: 'Login',
+          onClick: () => login(),
+        },
+      });
+      return;
+    }
+    setAnalysisInput(input);
+    try {
+      toast.info('Starting analysis...', { id: 'analysis' });
+      await analyze(input, token);
+    } catch (e) {
+      // Error is handled by the hook's state
+    }
+  }, [analyze, isAuthenticated, login, token]);
   const handleReset = () => {
     setAnalysisInput(null);
+    reset();
     setActiveStep(0);
     setProgress(0);
   };
   const renderAnalysisResult = (res: AnalysisResult | null) => {
-    if (isLoading) {
+    if (isLoading && !res) {
       return (
         <div className="space-y-4">
-          <Skeleton className="h-8 w-3/4" />
-          <Skeleton className="h-6 w-1/2" />
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-6 w-24" />
+            <Skeleton className="h-6 w-20" />
+          </div>
+          <Separator />
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-5/6" />
         </div>
       );
     }
-    if (error) {
+    if (error && !res) {
       return <p className="text-destructive">{error}</p>;
     }
     if (!res) {
@@ -89,10 +116,6 @@ export function HomePage() {
           <span className="font-mono text-foreground">{res.manifestPath}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-muted-foreground">SW Register Location:</span>
-          <span className="font-mono text-foreground">{res.swRegLocation}</span>
-        </div>
-        <div className="flex justify-between">
           <span className="text-muted-foreground">Total Files:</span>
           <span className="font-medium text-foreground">{res.totalFiles}</span>
         </div>
@@ -106,17 +129,32 @@ export function HomePage() {
   return (
     <AppLayout>
       <div className="relative min-h-screen bg-background text-foreground">
-        <ThemeToggle className="fixed top-4 right-4" />
+        <header className="fixed top-0 left-0 right-0 z-50">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-end py-4">
+                <ThemeToggle className="relative top-0 right-0" />
+                <AnimatePresence>
+                {isAuthenticated ? (
+                    <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}>
+                        <Button onClick={logout} variant="outline" className="ml-4">
+                            <Github className="w-4 h-4 mr-2" /> Logout
+                        </Button>
+                    </motion.div>
+                ) : (
+                    <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}>
+                        <Button onClick={login} className="ml-4">
+                            <Github className="w-4 h-4 mr-2" /> Connect GitHub
+                        </Button>
+                    </motion.div>
+                )}
+                </AnimatePresence>
+            </div>
+        </header>
         <div className="absolute inset-0 -z-10 h-full w-full bg-white bg-[linear-gradient(to_right,#f0f0f0_1px,transparent_1px),linear-gradient(to_bottom,#f0f0f0_1px,transparent_1px)] bg-[size:6rem_4rem] dark:bg-background dark:bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)]">
           <div className="absolute bottom-0 left-0 right-0 top-0 bg-[radial-gradient(circle_500px_at_50%_200px,#0066ff33,transparent)]"></div>
         </div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-16 md:py-24 lg:py-32 text-center">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
+          <div className="py-24 md:py-32 lg:py-40 text-center">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
               <Badge variant="outline" className="mb-4 font-semibold text-primary border-primary/50">
                 <Zap className="w-4 h-4 mr-2 text-orange-400" />
                 Cloudflare Optimized
@@ -131,15 +169,10 @@ export function HomePage() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             <div className="lg:col-span-2 space-y-8">
-              <MotionCard
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.2 }}
-                className="overflow-hidden"
-              >
+              <MotionCard initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }} className="overflow-hidden">
                 <CardHeader>
                   <CardTitle>1. Upload Your Project</CardTitle>
-                  <CardDescription>Drag & drop a ZIP file, select a folder, or enter a public GitHub repository URL.</CardDescription>
+                  <CardDescription>Drag & drop a ZIP file, or enter a public GitHub repository URL.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <AnimatePresence mode="wait">
@@ -148,15 +181,10 @@ export function HomePage() {
                         <UploadDropzone onAnalyze={handleAnalyze} />
                       </motion.div>
                     ) : (
-                      <motion.div
-                        key="summary"
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="flex items-center justify-between p-4 rounded-lg bg-secondary"
-                      >
+                      <motion.div key="summary" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex items-center justify-between p-4 rounded-lg bg-secondary">
                         <div className="flex items-center gap-3">
                           <Package className="w-6 h-6 text-primary" />
-                          <span className="font-medium">
+                          <span className="font-medium truncate">
                             {typeof analysisInput === 'string' ? analysisInput : analysisInput.name}
                           </span>
                         </div>
@@ -166,11 +194,7 @@ export function HomePage() {
                   </AnimatePresence>
                 </CardContent>
               </MotionCard>
-              <MotionCard
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.4 }}
-              >
+              <MotionCard initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.4 }}>
                 <CardHeader>
                   <CardTitle>2. PWA Transformation Pipeline</CardTitle>
                   <CardDescription>Follow the automated process from analysis to a deployable PWA.</CardDescription>
@@ -180,12 +204,8 @@ export function HomePage() {
                 </CardContent>
               </MotionCard>
             </div>
-            <div className="lg:col-span-1 space-y-8 sticky top-8">
-              <MotionCard
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.6 }}
-              >
+            <div className="lg:col-span-1 space-y-8 sticky top-24">
+              <MotionCard initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.6 }}>
                 <CardHeader>
                   <CardTitle>3. Analysis & Results</CardTitle>
                   <CardDescription>Review the detected stack and get ready to export.</CardDescription>
@@ -194,12 +214,7 @@ export function HomePage() {
                   {renderAnalysisResult(result)}
                 </CardContent>
               </MotionCard>
-              <MotionCard
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.8 }}
-                className="bg-card/80 backdrop-blur-sm"
-              >
+              <MotionCard initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.8 }} className="bg-card/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle>4. Export</CardTitle>
                 </CardHeader>
