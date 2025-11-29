@@ -26,13 +26,24 @@ export interface PWAOptions {
   backgroundColor?: string;
   icons?: string[];
 }
+export interface ValidationChecklistItem {
+  id: string;
+  pass: boolean;
+  message: string;
+}
+export interface ValidationResult {
+  score: string;
+  checklist: ValidationChecklistItem[];
+  remediation: string[];
+}
 export interface JobState {
   id: string;
   input: string | { name: string };
   inputType: 'zip' | 'github';
-  status: 'pending' | 'analyzing' | 'complete' | 'generated' | 'error';
+  status: 'pending' | 'analyzing' | 'complete' | 'generated' | 'validating' | 'validated' | 'error';
   analysis?: AnalysisResult;
   generated?: GeneratedFiles;
+  validation?: ValidationResult;
   createdAt: number;
   error?: string;
 }

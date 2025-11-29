@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Check, Loader, AlertTriangle, Rocket } from 'lucide-react';
+import { Search, Zap, ShieldCheck, Rocket } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 interface StepperProps {
@@ -8,9 +8,9 @@ interface StepperProps {
   progress: number;
 }
 const steps = [
-  { name: 'Analyze', icon: Loader },
-  { name: 'Generate', icon: AlertTriangle },
-  { name: 'Validate', icon: Check },
+  { name: 'Analyze', icon: Search },
+  { name: 'Generate', icon: Zap },
+  { name: 'Validate', icon: ShieldCheck },
   { name: 'Export', icon: Rocket },
 ];
 export function Stepper({ activeStep, progress }: StepperProps) {
@@ -22,7 +22,7 @@ export function Stepper({ activeStep, progress }: StepperProps) {
           const isCompleted = index < activeStep;
           const Icon = step.icon;
           return (
-            <div key={step.name} className="flex flex-col items-center text-center w-1/4">
+            <div key={step.name} className="flex flex-col items-center text-center w-1/4 px-1">
               <motion.div
                 animate={isCompleted ? "completed" : isActive ? "active" : "inactive"}
                 variants={{
@@ -30,16 +30,17 @@ export function Stepper({ activeStep, progress }: StepperProps) {
                   active: { scale: 1.1, color: "hsl(var(--primary))" },
                   completed: { scale: 1, color: "hsl(var(--primary))" },
                 }}
+                transition={{ duration: 0.2 }}
                 className={cn(
                   "flex items-center justify-center w-10 h-10 rounded-full border-2 transition-colors",
                   isCompleted ? "bg-primary border-primary text-primary-foreground" :
                   isActive ? "border-primary" : "border-border"
                 )}
               >
-                {isCompleted ? <Check className="w-5 h-5" /> : <Icon className={cn("w-5 h-5", isActive && "animate-spin")} />}
+                <Icon className={cn("w-5 h-5", isActive && "animate-pulse")} />
               </motion.div>
               <p className={cn(
-                "mt-2 text-sm font-medium transition-colors",
+                "mt-2 text-sm font-medium transition-colors text-balance",
                 isActive || isCompleted ? "text-foreground" : "text-muted-foreground"
               )}>
                 {step.name}

@@ -1,5 +1,5 @@
 import { IndexedEntity, Env } from "./core-utils";
-import type { User, Chat, ChatMessage, JobState, AnalysisResult, GeneratedFiles } from "@shared/types";
+import type { User, Chat, ChatMessage, JobState, AnalysisResult, GeneratedFiles, ValidationResult } from "@shared/types";
 import { MOCK_CHAT_MESSAGES, MOCK_CHATS, MOCK_USERS } from "@shared/mock-data";
 export class UserEntity extends IndexedEntity<User> {
   static readonly entityName = "user";
@@ -37,6 +37,7 @@ export class JobEntity extends IndexedEntity<JobState> {
     status: "pending",
     createdAt: 0,
     generated: undefined,
+    validation: undefined,
   };
   static async createJob(env: Env, data: { input: string | { name: string; }; inputType: 'zip' | 'github'; }): Promise<JobState> {
     const jobState: JobState = {
@@ -52,14 +53,16 @@ export class JobEntity extends IndexedEntity<JobState> {
     newStatus: JobState['status'],
     analysis?: AnalysisResult,
     generated?: GeneratedFiles,
-    error?: string
+    error?: string,
+    validation?: ValidationResult
   ): Promise<JobState> {
     return this.mutate((s) => ({
       ...s,
       status: newStatus,
       ...(analysis && { analysis }),
       ...(generated && { generated }),
-      ...(error && { error })
+      ...(error && { error }),
+      ...(validation && { validation })
     }));
   }
 }

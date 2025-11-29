@@ -3,7 +3,7 @@ import type { Env } from './core-utils';
 import { UserEntity, ChatBoardEntity, JobEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
 import JSZip from 'jszip';
-import type { AnalysisResult, GeneratedFile, PWAOptions } from "@shared/types";
+import type { AnalysisResult, GeneratedFile, PWAOptions, JobState, ValidationResult, ValidationChecklistItem } from "@shared/types";
 // Mock templates for generation
 const createManifestContent = (options: PWAOptions, analysis: AnalysisResult) => JSON.stringify({
   name: `PWA for ${analysis.detectedStack} project`,
@@ -36,12 +36,53 @@ const injectSWRegistration = (content: string) => {
   }
   return content + `\n\nif ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js'); }); }`;
 };
+// Mock validation logic
+async function performValidation(generated: GeneratedFile[]): Promise<ValidationResult> {
+  const checklist: ValidationChecklistItem[] = [];
+  const remediation: string[] = [];
+  // 1. Check manifest validity
+  const manifestFile = generated.find(f => f.path.includes('manifest.json'));
+  if (!manifestFile) {
+    checklist.push({ id: 'manifest-exists', pass: false, message: 'manifest.json file is missing.' });
+    remediation.push('Ensure the "Generate" step created a manifest.json file.');
+  } else {
+    try {
+      JSON.parse(manifestFile.content);
+      checklist.push({ id: 'manifest-valid-json', pass: true, message: 'manifest.json is valid JSON.' });
+    } catch (e) {
+      checklist.push({ id: 'manifest-valid-json', pass: false, message: 'manifest.json is not valid JSON.' });
+      remediation.push('Fix syntax errors in the generated manifest.json.');
+    }
+  }
+  // 2. Check for Service Worker
+  const swFile = generated.find(f => f.path.includes('sw.js'));
+  checklist.push({ id: 'sw-exists', pass: !!swFile, message: 'Service Worker file (sw.js) exists.' });
+  if (!swFile) remediation.push('Ensure the "Generate" step created a sw.js file.');
+  // 3. Check for SW Registration
+  const entryFile = generated.find(f => f.type === 'modified');
+  if (entryFile && entryFile.content.includes("navigator.serviceWorker.register")) {
+    checklist.push({ id: 'sw-registration', pass: true, message: 'Service Worker registration snippet found.' });
+  } else {
+    checklist.push({ id: 'sw-registration', pass: false, message: 'Service Worker registration snippet is missing.' });
+    remediation.push('Ensure the "Generate" step correctly modified the entry file to include SW registration code.');
+  }
+  // Simulate Lighthouse CI delay
+  await new Promise(res => setTimeout(res, 3000));
+  const allPass = checklist.every(item => item.pass);
+  if (allPass) {
+    checklist.push({ id: 'lighthouse-pwa', pass: true, message: 'Lighthouse PWA audit passed (simulated).' });
+  }
+  return {
+    score: allPass ? '100/100' : `${checklist.filter(c => c.pass).length * 25}/100`,
+    checklist,
+    remediation,
+  };
+}
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
   // --- PWA_Gen API Routes ---
   app.post('/api/analyze', async (c) => {
     const contentType = c.req.header('content-type') || '';
-    let job;
-    let analysisPromise;
+    let job: JobState;
     const startAnalysis = async (jobId: string, analysisFn: () => Promise<AnalysisResult>) => {
       const jobEntity = new JobEntity(c.env, jobId);
       await jobEntity.updateStatus('analyzing');
@@ -59,8 +100,6 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       await startAnalysis(job.id, async () => {
         const buffer = await file.arrayBuffer();
         const zip = await JSZip.loadAsync(buffer);
-        const pkgFile = zip.file('package.json');
-        const pkg = pkgFile ? JSON.parse(await pkgFile.async('string')) : {};
         return {
           platform: "PWA_Gen", detectedStack: "Vite+React", entryFile: "src/main.tsx",
           manifestPath: "public/manifest.json", swRegLocation: "src/main.tsx",
@@ -91,12 +130,11 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     if (!jobId) return bad(c, 'Job ID is required');
     const jobEntity = new JobEntity(c.env, jobId);
     if (!await jobEntity.exists()) return notFound(c, 'Job not found');
-    const jobState = await jobEntity.getState();
+    const jobState: JobState = await jobEntity.getState();
     if (jobState.status !== 'complete' || !jobState.analysis) {
       return bad(c, 'Job is not ready for generation. Analysis must be complete.');
     }
     const analysis = jobState.analysis;
-    // This is a mock generation. A real implementation would fetch project files.
     const generatedFiles: GeneratedFile[] = [
       { path: analysis.manifestPath, content: createManifestContent(options, analysis), type: 'new' },
       { path: 'public/sw.js', content: createServiceWorkerContent(), type: 'new' },
@@ -104,6 +142,23 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       { path: analysis.swRegLocation, content: injectSWRegistration("/* Existing content of main.tsx */"), type: 'modified' },
     ];
     await jobEntity.updateStatus('generated', analysis, generatedFiles);
+    return ok(c, { jobId });
+  });
+  app.post('/api/validate', async (c) => {
+    const { jobId } = await c.req.json<{ jobId: string }>();
+    if (!jobId) return bad(c, 'Job ID is required');
+    const jobEntity = new JobEntity(c.env, jobId);
+    if (!await jobEntity.exists()) return notFound(c, 'Job not found');
+    const jobState: JobState = await jobEntity.getState();
+    if (jobState.status !== 'generated' || !jobState.generated) {
+      return bad(c, 'Generation must be complete before validation.');
+    }
+    await jobEntity.updateStatus('validating', jobState.analysis, jobState.generated);
+    c.executionCtx.waitUntil(
+      performValidation(jobState.generated)
+        .then(validationResult => jobEntity.updateStatus('validated', jobState.analysis, jobState.generated, undefined, validationResult))
+        .catch(e => jobEntity.updateStatus('error', jobState.analysis, jobState.generated, e instanceof Error ? e.message : 'Validation failed'))
+    );
     return ok(c, { jobId });
   });
   app.get('/api/job/:id', async (c) => {

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Github, Download, Package, Bot, Zap, FileText, Code2 } from 'lucide-react';
+import { Github, Download, Package, Bot, Zap, FileText, Code2, AlertCircle, CheckCircle, ShieldCheck } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import JSZip from 'jszip';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -15,20 +15,22 @@ import { UploadDropzone } from '@/components/UploadDropzone';
 import { Stepper } from '@/components/Stepper';
 import { useFileAnalyzer } from '@/hooks/use-file-analyzer';
 import { useGithubOAuth } from '@/hooks/use-github-oauth';
-import type { AnalysisResult, GeneratedFile } from '@shared/types';
+import type { AnalysisResult } from '@shared/types';
 export function HomePage() {
   const [analysisInput, setAnalysisInput] = useState<File | string | null>(null);
-  const { result, generatedFiles, job, isLoading, error, analyze, generate, reset } = useFileAnalyzer();
+  const { result, generatedFiles, validationResult, job, isLoading, error, analyze, generate, validate, reset } = useFileAnalyzer();
   const { login, logout, token, isAuthenticated } = useGithubOAuth();
   const [activeStep, setActiveStep] = useState(0);
   const [progress, setProgress] = useState(0);
   useEffect(() => {
     if (job) {
       switch (job.status) {
-        case 'pending': setActiveStep(0); setProgress(10); break;
-        case 'analyzing': setActiveStep(1); setProgress(25); break;
-        case 'complete': setActiveStep(2); setProgress(50); break;
-        case 'generated': setActiveStep(3); setProgress(75); setTimeout(() => setProgress(100), 500); break;
+        case 'pending': setActiveStep(0); setProgress(5); break;
+        case 'analyzing': setActiveStep(0); setProgress(15); break;
+        case 'complete': setActiveStep(1); setProgress(25); break;
+        case 'generated': setActiveStep(2); setProgress(50); break;
+        case 'validating': setActiveStep(2); setProgress(65); break;
+        case 'validated': setActiveStep(3); setProgress(100); break;
         case 'error':
           setActiveStep(0); setProgress(0);
           toast.error(job.error || 'An unknown error occurred.');
@@ -52,6 +54,11 @@ export function HomePage() {
     toast.info('Generating PWA files...', { id: 'generate' });
     await generate(job.id, { themeColor: '#0066FF' });
   }, [generate, job?.id]);
+  const handleValidate = useCallback(async () => {
+    if (!job?.id) return;
+    toast.info('Validating PWA configuration...', { id: 'validate' });
+    await validate(job.id);
+  }, [validate, job?.id]);
   const handleDownloadZip = useCallback(async () => {
     if (!generatedFiles) {
       toast.error("No generated files to download.");
@@ -76,11 +83,13 @@ export function HomePage() {
     setProgress(0);
   };
   const renderAnalysisResult = (res: AnalysisResult | null) => {
-    if (isLoading && !res && job?.status === 'analyzing') {
+    if (isLoading && !res && (job?.status === 'analyzing' || job?.status === 'pending')) {
       return <div className="space-y-4"><Skeleton className="h-6 w-3/4" /><Separator /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-5/6" /></div>;
     }
     if (error && !res) return <p className="text-destructive">{error}</p>;
     if (!res) return <div className="text-center text-muted-foreground py-8"><Bot size={48} className="mx-auto mb-4 opacity-50" /><p className="font-medium">Awaiting Analysis</p><p className="text-sm">Upload a project to get started.</p></div>;
+    const showGenerate = job?.status === 'complete';
+    const showValidate = job?.status === 'generated';
     return (
       <div className="space-y-4 text-sm">
         <div className="flex items-center justify-between"><h3 className="font-semibold text-base">Detected Stack</h3><Badge variant="secondary">{res.detectedStack}</Badge></div><Separator />
@@ -88,7 +97,8 @@ export function HomePage() {
         <div className="flex justify-between"><span className="text-muted-foreground">Manifest Path:</span><span className="font-mono text-foreground">{res.manifestPath}</span></div>
         <div className="flex justify-between"><span className="text-muted-foreground">Total Files:</span><span className="font-medium text-foreground">{res.totalFiles}</span></div>
         <div className="flex justify-between"><span className="text-muted-foreground">PWA Score Est:</span><span className="font-bold text-primary">{res.prePWA_LighthouseEstimate}</span></div>
-        <Button onClick={handleGenerate} disabled={isLoading || activeStep > 2} className="w-full mt-4">Generate PWA Files</Button>
+        {showGenerate && <Button onClick={handleGenerate} disabled={isLoading} className="w-full mt-4">Generate PWA Files</Button>}
+        {showValidate && <Button onClick={handleValidate} disabled={isLoading} className="w-full mt-4">Validate PWA Files</Button>}
       </div>
     );
   };
@@ -166,6 +176,41 @@ export function HomePage() {
                   </Card></motion.div>
                 )}
               </AnimatePresence>
+              <AnimatePresence>
+                {job?.status === 'validating' && !validationResult && (
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><Card>
+                    <CardHeader><CardTitle>Validation Report</CardTitle></CardHeader>
+                    <CardContent className="space-y-4"><Skeleton className="h-8 w-24" /><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></CardContent>
+                  </Card></motion.div>
+                )}
+                {validationResult && (
+                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}><Card>
+                    <CardHeader><CardTitle>Validation Report</CardTitle><CardDescription>PWA configuration and Lighthouse readiness check.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                      <Badge variant={validationResult.score === '100/100' ? 'default' : 'destructive'} className="text-lg font-semibold">
+                        <ShieldCheck className="w-5 h-5 mr-2" /> {validationResult.score}
+                      </Badge>
+                      <Accordion type="multiple" defaultValue={['checklist']}>
+                        <AccordionItem value="checklist">
+                          <AccordionTrigger>Checklist ({validationResult.checklist.length} items)</AccordionTrigger>
+                          <AccordionContent><div className="space-y-2">{validationResult.checklist.map(item => (
+                            <div key={item.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/50 text-sm">
+                              {item.pass ? <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
+                              <span>{item.message}</span>
+                            </div>))}
+                          </div></AccordionContent>
+                        </AccordionItem>
+                        {validationResult.remediation.length > 0 && (
+                          <AccordionItem value="remediation">
+                            <AccordionTrigger>Remediation Steps ({validationResult.remediation.length})</AccordionTrigger>
+                            <AccordionContent><ul className="list-disc pl-5 space-y-1 text-sm text-destructive">{validationResult.remediation.map((step, i) => <li key={i}>{step}</li>)}</ul></AccordionContent>
+                          </AccordionItem>
+                        )}
+                      </Accordion>
+                    </CardContent>
+                  </Card></motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <div className="lg:col-span-1 space-y-8 sticky top-24">
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.6 }}><Card>
@@ -175,8 +220,8 @@ export function HomePage() {
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.8 }}><Card className="bg-card/80 backdrop-blur-sm">
                 <CardHeader><CardTitle>4. Export</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
-                  <Button className="w-full" disabled={activeStep < 3} onClick={handleDownloadZip}><Download className="w-4 h-4 mr-2" /> Download ZIP</Button>
-                  <Button variant="secondary" className="w-full" disabled={activeStep < 3 || !isAuthenticated} onClick={() => toast.info("Push to GitHub coming soon!")}><Github className="w-4 h-4 mr-2" /> Push to GitHub</Button>
+                  <Button className="w-full" disabled={job?.status !== 'validated' || validationResult?.score !== '100/100'} onClick={handleDownloadZip}><Download className="w-4 h-4 mr-2" /> Download ZIP</Button>
+                  <Button variant="secondary" className="w-full" disabled={job?.status !== 'validated' || validationResult?.score !== '100/100' || !isAuthenticated} onClick={() => toast.info("Push to GitHub coming soon!")}><Github className="w-4 h-4 mr-2" /> Push to GitHub</Button>
                 </CardContent>
               </Card></motion.div>
             </div>

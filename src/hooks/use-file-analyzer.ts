@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api-client';
-import type { AnalysisResult, JobState, PWAOptions, GeneratedFiles } from '@shared/types';
+import type { AnalysisResult, JobState, PWAOptions, GeneratedFiles, ValidationResult } from '@shared/types';
 export function useFileAnalyzer() {
   const [job, setJob] = useState<JobState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -18,11 +18,11 @@ export function useFileAnalyzer() {
       try {
         const updatedJob = await api<JobState>(`/api/job/${jobId}`);
         setJob(updatedJob);
-        if (['complete', 'generated', 'error'].includes(updatedJob.status)) {
+        if (['complete', 'generated', 'validated', 'error'].includes(updatedJob.status)) {
           stopPolling();
           setIsLoading(false);
           if (updatedJob.status === 'error') {
-            setError(updatedJob.error || 'Analysis failed');
+            setError(updatedJob.error || 'Job failed');
           }
         }
       } catch (err) {
@@ -98,6 +98,27 @@ export function useFileAnalyzer() {
       throw e;
     }
   }, [pollJobStatus]);
+  const validate = useCallback(async (jobId: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await api<{ jobId: string }>('/api/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId }),
+      });
+      if (response.jobId) {
+        pollJobStatus(response.jobId);
+      } else {
+        throw new Error('Validate request did not return a job ID.');
+      }
+    } catch (err) {
+      const e = err as Error;
+      setError(e.message);
+      setIsLoading(false);
+      throw e;
+    }
+  }, [pollJobStatus]);
   const reset = useCallback(() => {
     stopPolling();
     setJob(null);
@@ -107,11 +128,13 @@ export function useFileAnalyzer() {
   return {
     result: job?.analysis ?? null,
     generatedFiles: job?.generated ?? null,
+    validationResult: job?.validation ?? null,
     job,
     isLoading,
     error,
     analyze,
     generate,
+    validate,
     reset
   };
 }
