@@ -146,7 +146,7 @@ export function useFileAnalyzer() {
     } finally {
       setIsLoading(false);
     }
-  }, [pollJobStatus]);
+  }, [pollJobStatus, reset]);
   const clearHistory = useCallback(async () => {
     setIsLoading(true);
     try {
