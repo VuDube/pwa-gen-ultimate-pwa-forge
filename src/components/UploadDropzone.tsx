@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { UploadCloud, Github } from 'lucide-react';
+import { UploadCloud, Github, FolderOpen, FileCheck2, AlertCircle } from 'lucide-react';
 import JSZip from 'jszip';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ interface UploadDropzoneProps {
 export function UploadDropzone({ onAnalyze }: UploadDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [githubUrl, setGithubUrl] = useState('');
+  const [fileInfo, setFileInfo] = useState<{ name: string; count: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
@@ -31,25 +32,18 @@ export function UploadDropzone({ onAnalyze }: UploadDropzoneProps) {
   const processZipFile = useCallback(async (file: File) => {
     setError(null);
     if (file.type !== 'application/zip' && !file.name.endsWith('.zip')) {
-      const msg = 'Invalid file type. Please upload a ZIP file.';
-      setError(msg);
-      toast.error(msg);
+      setError('Invalid file type. Please upload a ZIP file.');
+      toast.error('Invalid file type. Please upload a ZIP file.');
       return;
     }
     try {
       const zip = await JSZip.loadAsync(file);
       const fileCount = Object.keys(zip.files).length;
-      if (fileCount === 0) {
-        const msg = 'The selected ZIP file is empty.';
-        setError(msg);
-        toast.error(msg);
-        return;
-      }
+      setFileInfo({ name: file.name, count: fileCount });
       onAnalyze(file);
     } catch (e) {
-      const msg = 'Could not read ZIP file. It may be corrupt.';
-      setError(msg);
-      toast.error(msg);
+      setError('Could not read ZIP file. It may be corrupt.');
+      toast.error('Could not read ZIP file. It may be corrupt.');
     }
   }, [onAnalyze]);
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -83,8 +77,8 @@ export function UploadDropzone({ onAnalyze }: UploadDropzoneProps) {
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
         className={cn(
-          "relative flex flex-col items-center justify-center w-full p-8 border-2 border-dashed rounded-lg cursor-pointer transition-all duration-300 ease-in-out",
-          isDragging ? "border-primary bg-primary/10 scale-105 shadow-lg" : "border-border hover:border-primary/50 hover:bg-secondary/50"
+          "relative flex flex-col items-center justify-center w-full p-8 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-200",
+          isDragging ? "border-primary bg-primary/10" : "border-border hover:border-primary/50 hover:bg-secondary/50"
         )}
         whileHover={{ scale: 1.02 }}
       >
@@ -96,9 +90,7 @@ export function UploadDropzone({ onAnalyze }: UploadDropzoneProps) {
           className="hidden"
         />
         <div className="text-center">
-          <motion.div animate={{ y: isDragging ? -5 : 0 }}>
-            <UploadCloud className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-          </motion.div>
+          <UploadCloud className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <p className="font-semibold text-foreground">Drag & drop a ZIP file here</p>
           <p className="text-sm text-muted-foreground">or click to select a file</p>
         </div>
