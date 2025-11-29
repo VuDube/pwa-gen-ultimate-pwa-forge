@@ -1,5 +1,5 @@
 {
-  "name": "pwa-gen-c1nwdgebapoxbb47cyf7l",
+  "name": "vite-cf-do-v2-runner",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,14 +9,14 @@
     "lint": "eslint --cache -f json --quiet .",
     "preview": "bun run build && vite preview --host 0.0.0.0 --port ${PORT:-4173}",
     "deploy": "bun run build && wrangler deploy",
-    "cf-typegen": "wrangler types",
-    "prepare": "bun .bootstrap.js || true"
+    "cf-typegen": "wrangler types"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@headlessui/react": "^2.2.4",
     "@hookform/resolvers": "^5.1.1",
+    "@octokit/rest": "^20.0.2",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-aspect-ratio": "^1.1.7",
@@ -59,6 +59,8 @@
     "hono": "^4.8.5",
     "immer": "^10.1.1",
     "input-otp": "^1.4.2",
+    "jsdom": "^24.1.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.525.0",
     "next-themes": "^0.4.6",
     "pino": "^9.11.0",
@@ -80,6 +82,7 @@
     "tw-animate-css": "^1.3.5",
     "uuid": "^11.1.0",
     "vaul": "^1.1.2",
+    "workbox-build": "^6.5.4",
     "zod": "^4.0.5",
     "zustand": "^5.0.6"
   },
