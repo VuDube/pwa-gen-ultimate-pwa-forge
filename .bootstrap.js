@@ -77,14 +77,7 @@ function updateWranglerJsonc() {
 }
 
 function runSetupCommands() {
-    const commands = [
-    "bun add jszip@^3.10.1",
-    "bun add @octokit/rest@^20.0.2",
-    "bun add jsdom@^24.1.1",
-    "bun add workbox-build@^6.5.4",
-    "bun add recast",
-    "bun add diff"
-];
+    const commands = [];
     
     if (commands.length === 0) {
         console.log('⊘ No setup commands to run');

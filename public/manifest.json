@@ -1,0 +1,30 @@
+{
+  "name": "PWA_Gen - Ultimate PWA Forge",
+  "short_name": "PWA_Gen",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0066FF",
+  "background_color": "#FFFFFF",
+  "description": "Instantly transform any web project into a production-ready, 100/100 Lighthouse score Progressive Web App.",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgdmlld0JveD0iMCAwIDUxMiA1MTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iODAiIGZpbGw9IiMwMDY2RkYiLz4KPHBhdGggZD0iTTI1NiA5NkM0MDggOTYgNDA4IDIwOCAyNTYgMjA4TTI1NiA0MTZDMTI4IDQxNiAxMjggMzA0IDI1NiAzMDRNMTYwIDMwNFYyMDhIMzUyVjMwNE0xNjAgMjA4QzE2MCAxNDQgMjU2IDk2IDI1NiA5Nk0zNTIgMjA4QzM1MiAxNDQgMjU2IDk2IDI1NiA5NiIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIzMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxOTIiIGhlaWdodD0iMTkyIiByeD0iMzAiIGZpbGw9IiMwMDY2RkYiLz4KPHBhdGggZD0iTTk2IDM2QzE1MyAzNiAxNTMgNzggOTYgNzhNOTYgMTU2QzQ1IDE1NiA0NSAxMTQgOTYgMTE0TTYwIDExNFY3OEgxMzJWMTE0TTYwIDc4QzYwIDUzIDk2IDM2IDk2IDM2TTEzMiA3OEMxMzIgNTMgOTYgMzYgOTYgMzYiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMTIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4K",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTE3MCIgaGVpZ2h0PSIyNTMyIiB2aWV3Qm94PSIwIDAgMTE3MCAyNTMyIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTE3MCIgaGVpZ2h0PSIyNTMyIiBmaWxsPSJ3aGl0ZSIvPgo8cmVjdCB4PSI4MCIgeT0iMjAwIiB3aWR0aD0iMTAxMCIgaGVpZ2h0PSIxMDAiIHJ4PSIyMCIgZmlsbD0iI2YxZjVmOSIvPgo8dGV4dCB4PSI1ODUiIHk9IjQ1MCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNzIiIGZvbnQtd2VpZ2h0PSJib2xkIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjMGYxNzI0Ij5QV0FfR2VuPC90ZXh0Pgo8cmVjdCB4PSI4MCIgeT0iNjAwIiB3aWR0aD0iMTAxMCIgaGVpZ2h0PSI1MDAiIHJ4PSIyMCIgZmlsbD0iI2Y4ZmFmYyIvPgo8dGV4dCB4PSI1ODUiIHk9Ijg1MCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNDAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiM2NDcyODIiPkRyYWcgJiBEcm9wIFpJUCBGaWxlPC90ZXh0Pgo8cmVjdCB4PSI4MCIgeT0iMTIwMCIgd2lkdGg9IjEwMTAiIGhlaWdodD0iMjAwIiByeD0iMjAiIGZpbGw9IiNlMmU4ZjAiLz4KPHJlY3QgeD0iODAiIHk9IjE1MDAiIHdpZHRoPSIxMDEwIiBoZWlnaHQ9IjgwMCIgcng9IjIwIiBmaWxsPSIjZWVmMWY1Ii8+Cjwvc3ZnPgo=",
+      "sizes": "1170x2532",
+      "type": "image/svg+xml",
+      "form_factor": "narrow",
+      "label": "PWA_Gen Dashboard"
+    }
+  ]
+}
