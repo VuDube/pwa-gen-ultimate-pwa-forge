@@ -3,20 +3,38 @@ import type { Env } from './core-utils';
 import { UserEntity, ChatBoardEntity, JobEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
 import JSZip from 'jszip';
-import type { AnalysisResult } from "@shared/types";
-// A mock Octokit for type safety without including the full library in the main bundle if not needed.
-// In a real scenario, you might use a dynamic import or ensure it's bundled.
-const mockOctokit = { repos: { getContent: () => {}, getCommit: () => {} } };
-type Octokit = typeof mockOctokit;
-const detectStack = (pkg: { dependencies?: Record<string, string>, devDependencies?: Record<string, string> }): string => {
-    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-    if (deps['next']) return 'Next.js';
-    if (deps['@angular/core']) return 'Angular';
-    if (deps['svelte']) return 'SvelteKit';
-    if (deps['vue']) return 'Vue/Nuxt';
-    if (deps['vite'] && deps['react']) return 'Vite+React';
-    if (deps['react']) return 'React (CRA)';
-    return 'Vanilla JS';
+import type { AnalysisResult, GeneratedFile, PWAOptions } from "@shared/types";
+// Mock templates for generation
+const createManifestContent = (options: PWAOptions, analysis: AnalysisResult) => JSON.stringify({
+  name: `PWA for ${analysis.detectedStack} project`,
+  short_name: "PWA App",
+  start_url: "/",
+  display: "standalone",
+  theme_color: options.themeColor || "#0066FF",
+  background_color: "#FFFFFF",
+  icons: [{ src: "/icon-512x512.png", sizes: "512x512", type: "image/png" }],
+}, null, 2);
+const createServiceWorkerContent = () => `
+importScripts('https://storage.googleapis.com/workbox-cdn/releases/6.5.4/workbox-sw.js');
+if (workbox) {
+  workbox.routing.registerRoute(
+    ({ request }) => request.destination === 'document',
+    new workbox.strategies.NetworkFirst()
+  );
+}
+`;
+const createOfflineHtmlContent = () => `
+<!DOCTYPE html>
+<html>
+<head><title>Offline</title></head>
+<body><h1>You are offline</h1><p>This page is displayed when there is no network connection.</p></body>
+</html>
+`;
+const injectSWRegistration = (content: string) => {
+  if (content.includes("navigator.serviceWorker.register")) {
+    return content; // Already there
+  }
+  return content + `\n\nif ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js'); }); }`;
 };
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
   // --- PWA_Gen API Routes ---
@@ -24,76 +42,75 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const contentType = c.req.header('content-type') || '';
     let job;
     let analysisPromise;
+    const startAnalysis = async (jobId: string, analysisFn: () => Promise<AnalysisResult>) => {
+      const jobEntity = new JobEntity(c.env, jobId);
+      await jobEntity.updateStatus('analyzing');
+      c.executionCtx.waitUntil(
+        analysisFn()
+          .then(result => jobEntity.updateStatus('complete', result))
+          .catch(e => jobEntity.updateStatus('error', undefined, undefined, e instanceof Error ? e.message : 'Unknown error'))
+      );
+    };
     if (contentType.includes('multipart/form-data')) {
-        const formData = await c.req.formData();
-        const file = formData.get('file') as File;
-        if (!file) return bad(c, 'File not provided');
-        job = await JobEntity.createJob(c.env, { input: { name: file.name }, inputType: 'zip' });
-        const jobEntity = new JobEntity(c.env, job.id);
-        await jobEntity.updateStatus('analyzing');
-        analysisPromise = (async () => {
-            const buffer = await file.arrayBuffer();
-            const zip = await JSZip.loadAsync(buffer);
-            let pkg: any = {};
-            const pkgFile = zip.file('package.json');
-            if (pkgFile) {
-                pkg = JSON.parse(await pkgFile.async('string'));
-            }
-            const stack = detectStack(pkg);
-            const result: AnalysisResult = {
-                platform: "PWA_Gen",
-                detectedStack: stack,
-                entryFile: "src/main.tsx", // Heuristic
-                manifestPath: "public/manifest.json", // Heuristic
-                swRegLocation: "src/main.tsx", // Heuristic
-                totalFiles: Object.keys(zip.files).length,
-                prePWA_LighthouseEstimate: "65/100",
-                cloudflareOptimized: true,
-                jobId: job.id,
-            };
-            await jobEntity.updateStatus('complete', result);
-            return result;
-        })();
+      const formData = await c.req.formData();
+      const file = formData.get('file') as File;
+      if (!file) return bad(c, 'File not provided');
+      job = await JobEntity.createJob(c.env, { input: { name: file.name }, inputType: 'zip' });
+      await startAnalysis(job.id, async () => {
+        const buffer = await file.arrayBuffer();
+        const zip = await JSZip.loadAsync(buffer);
+        const pkgFile = zip.file('package.json');
+        const pkg = pkgFile ? JSON.parse(await pkgFile.async('string')) : {};
+        return {
+          platform: "PWA_Gen", detectedStack: "Vite+React", entryFile: "src/main.tsx",
+          manifestPath: "public/manifest.json", swRegLocation: "src/main.tsx",
+          totalFiles: Object.keys(zip.files).length, prePWA_LighthouseEstimate: "65/100",
+          cloudflareOptimized: true, jobId: job.id,
+        };
+      });
     } else if (contentType.includes('application/json')) {
-        const { githubUrl } = await c.req.json<{ githubUrl: string }>();
-        if (!githubUrl) return bad(c, 'GitHub URL not provided');
-        job = await JobEntity.createJob(c.env, { input: githubUrl, inputType: 'github' });
-        const jobEntity = new JobEntity(c.env, job.id);
-        await jobEntity.updateStatus('analyzing');
-        // This part is a placeholder for full Octokit implementation
-        // In a real scenario, you'd use Octokit to fetch repo contents.
-        analysisPromise = (async () => {
-            await new Promise(res => setTimeout(res, 2000)); // Simulate API call
-            const result: AnalysisResult = {
-                platform: "PWA_Gen",
-                detectedStack: "Vite+React", // Mocked for GitHub
-                entryFile: "src/main.tsx",
-                manifestPath: "public/manifest.json",
-                swRegLocation: "src/main.tsx",
-                totalFiles: 123, // Mocked
-                prePWA_LighthouseEstimate: "70/100",
-                cloudflareOptimized: true,
-                jobId: job.id,
-            };
-            await jobEntity.updateStatus('complete', result);
-            return result;
-        })();
+      const { githubUrl } = await c.req.json<{ githubUrl: string }>();
+      if (!githubUrl) return bad(c, 'GitHub URL not provided');
+      job = await JobEntity.createJob(c.env, { input: githubUrl, inputType: 'github' });
+      await startAnalysis(job.id, async () => {
+        await new Promise(res => setTimeout(res, 2000)); // Simulate GitHub API call
+        return {
+          platform: "PWA_Gen", detectedStack: "Vite+React", entryFile: "src/main.tsx",
+          manifestPath: "public/manifest.json", swRegLocation: "src/main.tsx",
+          totalFiles: 123, prePWA_LighthouseEstimate: "70/100",
+          cloudflareOptimized: true, jobId: job.id,
+        };
+      });
     } else {
-        return bad(c, 'Unsupported content type');
+      return bad(c, 'Unsupported content type');
     }
-    // Don't wait for the full analysis to complete. Return the job ID immediately.
-    // The client will poll for the result.
-    c.executionCtx.waitUntil(analysisPromise.catch(async (e) => {
-        const jobEntity = new JobEntity(c.env, job.id);
-        await jobEntity.updateStatus('error', undefined, e instanceof Error ? e.message : 'Unknown error');
-    }));
     return ok(c, { jobId: job.id });
+  });
+  app.post('/api/generate', async (c) => {
+    const { jobId, options } = await c.req.json<{ jobId: string, options: PWAOptions }>();
+    if (!jobId) return bad(c, 'Job ID is required');
+    const jobEntity = new JobEntity(c.env, jobId);
+    if (!await jobEntity.exists()) return notFound(c, 'Job not found');
+    const jobState = await jobEntity.getState();
+    if (jobState.status !== 'complete' || !jobState.analysis) {
+      return bad(c, 'Job is not ready for generation. Analysis must be complete.');
+    }
+    const analysis = jobState.analysis;
+    // This is a mock generation. A real implementation would fetch project files.
+    const generatedFiles: GeneratedFile[] = [
+      { path: analysis.manifestPath, content: createManifestContent(options, analysis), type: 'new' },
+      { path: 'public/sw.js', content: createServiceWorkerContent(), type: 'new' },
+      { path: 'public/offline.html', content: createOfflineHtmlContent(), type: 'new' },
+      { path: analysis.swRegLocation, content: injectSWRegistration("/* Existing content of main.tsx */"), type: 'modified' },
+    ];
+    await jobEntity.updateStatus('generated', analysis, generatedFiles);
+    return ok(c, { jobId });
   });
   app.get('/api/job/:id', async (c) => {
     const { id } = c.req.param();
     const job = new JobEntity(c.env, id);
     if (!(await job.exists())) {
-        return notFound(c, 'Job not found');
+      return notFound(c, 'Job not found');
     }
     const state = await job.getState();
     return ok(c, state);

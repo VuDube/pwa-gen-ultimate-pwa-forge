@@ -15,12 +15,24 @@ export interface AnalysisResult {
   cloudflareOptimized: boolean;
   jobId?: string;
 }
+export type GeneratedFile = {
+  path: string;
+  content: string;
+  type: 'new' | 'modified' | 'deleted';
+};
+export type GeneratedFiles = GeneratedFile[];
+export interface PWAOptions {
+  themeColor: string;
+  backgroundColor?: string;
+  icons?: string[];
+}
 export interface JobState {
   id: string;
   input: string | { name: string };
   inputType: 'zip' | 'github';
-  status: 'pending' | 'analyzing' | 'complete' | 'error';
+  status: 'pending' | 'analyzing' | 'complete' | 'generated' | 'error';
   analysis?: AnalysisResult;
+  generated?: GeneratedFiles;
   createdAt: number;
   error?: string;
 }

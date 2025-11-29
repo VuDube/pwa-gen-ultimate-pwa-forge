@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api-client';
-import type { AnalysisResult, JobState } from '@shared/types';
+import type { AnalysisResult, JobState, PWAOptions, GeneratedFiles } from '@shared/types';
 export function useFileAnalyzer() {
   const [job, setJob] = useState<JobState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -18,7 +18,7 @@ export function useFileAnalyzer() {
       try {
         const updatedJob = await api<JobState>(`/api/job/${jobId}`);
         setJob(updatedJob);
-        if (updatedJob.status === 'complete' || updatedJob.status === 'error') {
+        if (['complete', 'generated', 'error'].includes(updatedJob.status)) {
           stopPolling();
           setIsLoading(false);
           if (updatedJob.status === 'error') {
@@ -77,11 +77,41 @@ export function useFileAnalyzer() {
       throw e;
     }
   }, [pollJobStatus]);
+  const generate = useCallback(async (jobId: string, options: PWAOptions) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await api<{ jobId: string }>('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, options }),
+      });
+      if (response.jobId) {
+        pollJobStatus(response.jobId);
+      } else {
+        throw new Error('Generate request did not return a job ID.');
+      }
+    } catch (err) {
+      const e = err as Error;
+      setError(e.message);
+      setIsLoading(false);
+      throw e;
+    }
+  }, [pollJobStatus]);
   const reset = useCallback(() => {
     stopPolling();
     setJob(null);
     setIsLoading(false);
     setError(null);
   }, []);
-  return { result: job?.analysis ?? null, job, isLoading, error, analyze, reset };
+  return {
+    result: job?.analysis ?? null,
+    generatedFiles: job?.generated ?? null,
+    job,
+    isLoading,
+    error,
+    analyze,
+    generate,
+    reset
+  };
 }

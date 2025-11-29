@@ -7,7 +7,7 @@ export function createOctokit(token?: string) {
   return new Octokit(options);
 }
 export function parseRepoUrl(url: string): { owner: string; repo: string; branch?: string; path?: string } | null {
-  const match = url.match(/^https?:\/\/github\.com\/([^\/]+)\/([^\/]+)(?:(?:\/tree\/|\@)([^/]+))?(?:\/(.*))?$/);
+  const match = url.match(/^https?:\/\/github\.com\/([^\/]+)\/([^\/]+)(?:(?:\/tree\/|@)([^/]+))?(?:\/(.*))?$/);
   if (!match) return null;
   return {
     owner: match[1],

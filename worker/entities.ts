@@ -1,18 +1,13 @@
-
-
-
-import { IndexedEntity } from "./core-utils";
-import type { User, Chat, ChatMessage, JobState, AnalysisResult } from "@shared/types";
-import { MOCK_CHAT_MESSAGES, MOCK_CHATS, MOCK_USERS } from "@shared/mock-data";interface Env {id?: string | number;
-
-  [key: string]: unknown;
-}export class UserEntity extends IndexedEntity<User> {static readonly entityName = "user";
+import { IndexedEntity, Env } from "./core-utils";
+import type { User, Chat, ChatMessage, JobState, AnalysisResult, GeneratedFiles } from "@shared/types";
+import { MOCK_CHAT_MESSAGES, MOCK_CHATS, MOCK_USERS } from "@shared/mock-data";
+export class UserEntity extends IndexedEntity<User> {
+  static readonly entityName = "user";
   static readonly indexName = "users";
   static readonly initialState: User = { id: "", name: "" };
   static seedData = MOCK_USERS;
 }
-
-export type ChatBoardState = Chat & {messages: ChatMessage[];};
+export type ChatBoardState = Chat & { messages: ChatMessage[] };
 const SEED_CHAT_BOARDS: ChatBoardState[] = MOCK_CHATS.map((c) => ({
   ...c,
   messages: MOCK_CHAT_MESSAGES.filter((m) => m.chatId === c.id)
@@ -32,7 +27,6 @@ export class ChatBoardEntity extends IndexedEntity<ChatBoardState> {
     return msg;
   }
 }
-
 export class JobEntity extends IndexedEntity<JobState> {
   static readonly entityName = "job";
   static readonly indexName = "jobs";
@@ -41,9 +35,10 @@ export class JobEntity extends IndexedEntity<JobState> {
     input: "",
     inputType: "zip",
     status: "pending",
-    createdAt: 0
+    createdAt: 0,
+    generated: undefined,
   };
-  static async createJob(env: Env, data: {input: string | {name: string;};inputType: 'zip' | 'github';}): Promise<JobState> {
+  static async createJob(env: Env, data: { input: string | { name: string; }; inputType: 'zip' | 'github'; }): Promise<JobState> {
     const jobState: JobState = {
       id: crypto.randomUUID(),
       ...data,
@@ -53,11 +48,17 @@ export class JobEntity extends IndexedEntity<JobState> {
     await this.create(env, jobState);
     return jobState;
   }
-  async updateStatus(newStatus: JobState['status'], analysis?: AnalysisResult, error?: string): Promise<JobState> {
+  async updateStatus(
+    newStatus: JobState['status'],
+    analysis?: AnalysisResult,
+    generated?: GeneratedFiles,
+    error?: string
+  ): Promise<JobState> {
     return this.mutate((s) => ({
       ...s,
       status: newStatus,
       ...(analysis && { analysis }),
+      ...(generated && { generated }),
       ...(error && { error })
     }));
   }
