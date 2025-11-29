@@ -81,7 +81,8 @@ function runSetupCommands() {
     "bun add jszip@^3.10.1",
     "bun add @octokit/rest@^20.0.2",
     "bun add jsdom@^24.1.1",
-    "bun add workbox-build@^6.5.4"
+    "bun add workbox-build@^6.5.4",
+    "bun add recast"
 ];
     
     if (commands.length === 0) {
