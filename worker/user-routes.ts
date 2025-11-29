@@ -3,7 +3,7 @@ import type { Env } from './core-utils';
 import { UserEntity, ChatBoardEntity, JobEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
 import JSZip from 'jszip';
-import type { AnalysisResult, GeneratedFile, PWAOptions, JobState, ValidationResult, ValidationChecklistItem } from "@shared/types";
+import type { AnalysisResult, GeneratedFile, PWAOptions, JobState, ValidationResult, ValidationChecklistItem, ExportResult, HistoryResponse } from "@shared/types";
 // Mock templates for generation
 const createManifestContent = (options: PWAOptions, analysis: AnalysisResult) => JSON.stringify({
   name: `PWA for ${analysis.detectedStack} project`,
@@ -40,7 +40,6 @@ const injectSWRegistration = (content: string) => {
 async function performValidation(generated: GeneratedFile[]): Promise<ValidationResult> {
   const checklist: ValidationChecklistItem[] = [];
   const remediation: string[] = [];
-  // 1. Check manifest validity
   const manifestFile = generated.find(f => f.path.includes('manifest.json'));
   if (!manifestFile) {
     checklist.push({ id: 'manifest-exists', pass: false, message: 'manifest.json file is missing.' });
@@ -54,11 +53,9 @@ async function performValidation(generated: GeneratedFile[]): Promise<Validation
       remediation.push('Fix syntax errors in the generated manifest.json.');
     }
   }
-  // 2. Check for Service Worker
   const swFile = generated.find(f => f.path.includes('sw.js'));
   checklist.push({ id: 'sw-exists', pass: !!swFile, message: 'Service Worker file (sw.js) exists.' });
   if (!swFile) remediation.push('Ensure the "Generate" step created a sw.js file.');
-  // 3. Check for SW Registration
   const entryFile = generated.find(f => f.type === 'modified');
   if (entryFile && entryFile.content.includes("navigator.serviceWorker.register")) {
     checklist.push({ id: 'sw-registration', pass: true, message: 'Service Worker registration snippet found.' });
@@ -66,7 +63,6 @@ async function performValidation(generated: GeneratedFile[]): Promise<Validation
     checklist.push({ id: 'sw-registration', pass: false, message: 'Service Worker registration snippet is missing.' });
     remediation.push('Ensure the "Generate" step correctly modified the entry file to include SW registration code.');
   }
-  // Simulate Lighthouse CI delay
   await new Promise(res => setTimeout(res, 3000));
   const allPass = checklist.every(item => item.pass);
   if (allPass) {
@@ -161,23 +157,69 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     );
     return ok(c, { jobId });
   });
+  app.post('/api/export', async (c) => {
+    const { jobId, exportType, branch, token } = await c.req.json<{ jobId: string; exportType: 'zip' | 'github' | 'cf'; branch?: string; token?: string }>();
+    if (!jobId || !exportType) return bad(c, 'jobId and exportType are required');
+    const jobEntity = new JobEntity(c.env, jobId);
+    if (!await jobEntity.exists()) return notFound(c, 'Job not found');
+    const jobState = await jobEntity.getState();
+    if (jobState.status !== 'validated') return bad(c, 'Job must be validated before export.');
+    let result: ExportResult;
+    switch (exportType) {
+      case 'zip': {
+        const zip = new JSZip();
+        // Here you would add original files + generated files
+        jobState.generated?.forEach(f => zip.file(f.path, f.content));
+        const content = await zip.generateAsync({ type: 'base64' });
+        result = { type: 'zip', blobUrl: `data:application/zip;base64,${content}` };
+        break;
+      }
+      case 'github': {
+        // Mock GitHub push
+        await new Promise(res => setTimeout(res, 2500));
+        result = { type: 'github', commitSha: crypto.randomUUID().replace(/-/g, '').slice(0, 7), branch: branch || 'pwa-generated' };
+        break;
+      }
+      case 'cf': {
+        const instructions = `1. Install Wrangler: bun add -g wrangler\n2. Build your project: bun run build\n3. Deploy: npx wrangler pages publish dist`;
+        const wranglerToml = `name = "my-pwa-app"\ncompatibility_date = "2024-01-01"`;
+        result = { type: 'cf', instructions, wranglerToml };
+        break;
+      }
+      default: return bad(c, 'Invalid export type');
+    }
+    await jobEntity.updateStatus('exported', jobState.analysis, jobState.generated, undefined, jobState.validation, result);
+    return ok(c, result);
+  });
+  app.get('/api/history', async (c) => {
+    const cursor = c.req.query('cursor');
+    const limit = c.req.query('limit');
+    const page = await JobEntity.list(c.env, cursor ?? null, limit ? parseInt(limit, 10) : 10);
+    return ok(c, page as HistoryResponse);
+  });
+  app.post('/api/rerun', async (c) => {
+    const { jobId } = await c.req.json<{ jobId: string }>();
+    if (!jobId) return bad(c, 'jobId is required');
+    const oldJobEntity = new JobEntity(c.env, jobId);
+    if (!await oldJobEntity.exists()) return notFound(c, 'Original job not found');
+    const oldJobState = await oldJobEntity.getState();
+    const newJob = await JobEntity.createJob(c.env, { input: oldJobState.input, inputType: oldJobState.inputType });
+    return ok(c, { newJobId: newJob.id });
+  });
+  app.post('/api/history/clear', async (c) => {
+    const count = await JobEntity.clearAll(c.env);
+    return ok(c, { clearedCount: count });
+  });
   app.get('/api/job/:id', async (c) => {
     const { id } = c.req.param();
     const job = new JobEntity(c.env, id);
-    if (!(await job.exists())) {
-      return notFound(c, 'Job not found');
-    }
-    const state = await job.getState();
-    return ok(c, state);
+    if (!(await job.exists())) return notFound(c, 'Job not found');
+    return ok(c, await job.getState());
   });
   // --- Existing Demo Routes ---
-  app.get('/api/test', (c) => c.json({ success: true, data: { name: 'CF Workers Demo' }}));
-  // USERS
   app.get('/api/users', async (c) => {
     await UserEntity.ensureSeed(c.env);
-    const cq = c.req.query('cursor');
-    const lq = c.req.query('limit');
-    const page = await UserEntity.list(c.env, cq ?? null, lq ? Math.max(1, (Number(lq) | 0)) : undefined);
+    const page = await UserEntity.list(c.env, c.req.query('cursor') ?? null, c.req.query('limit') ? Math.max(1, (Number(c.req.query('limit')) | 0)) : undefined);
     return ok(c, page);
   });
   app.post('/api/users', async (c) => {
@@ -185,12 +227,9 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     if (!name?.trim()) return bad(c, 'name required');
     return ok(c, await UserEntity.create(c.env, { id: crypto.randomUUID(), name: name.trim() }));
   });
-  // CHATS
   app.get('/api/chats', async (c) => {
     await ChatBoardEntity.ensureSeed(c.env);
-    const cq = c.req.query('cursor');
-    const lq = c.req.query('limit');
-    const page = await ChatBoardEntity.list(c.env, cq ?? null, lq ? Math.max(1, (Number(lq) | 0)) : undefined);
+    const page = await ChatBoardEntity.list(c.env, c.req.query('cursor') ?? null, c.req.query('limit') ? Math.max(1, (Number(c.req.query('limit')) | 0)) : undefined);
     return ok(c, page);
   });
   app.post('/api/chats', async (c) => {
@@ -199,7 +238,6 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const created = await ChatBoardEntity.create(c.env, { id: crypto.randomUUID(), title: title.trim(), messages: [] });
     return ok(c, { id: created.id, title: created.title });
   });
-  // MESSAGES
   app.get('/api/chats/:chatId/messages', async (c) => {
     const chat = new ChatBoardEntity(c.env, c.req.param('chatId'));
     if (!await chat.exists()) return notFound(c, 'chat not found');
@@ -212,21 +250,5 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const chat = new ChatBoardEntity(c.env, chatId);
     if (!await chat.exists()) return notFound(c, 'chat not found');
     return ok(c, await chat.sendMessage(userId, text.trim()));
-  });
-  // DELETE: Users
-  app.delete('/api/users/:id', async (c) => ok(c, { id: c.req.param('id'), deleted: await UserEntity.delete(c.env, c.req.param('id')) }));
-  app.post('/api/users/deleteMany', async (c) => {
-    const { ids } = (await c.req.json()) as { ids?: string[] };
-    const list = ids?.filter(isStr) ?? [];
-    if (list.length === 0) return bad(c, 'ids required');
-    return ok(c, { deletedCount: await UserEntity.deleteMany(c.env, list), ids: list });
-  });
-  // DELETE: Chats
-  app.delete('/api/chats/:id', async (c) => ok(c, { id: c.req.param('id'), deleted: await ChatBoardEntity.delete(c.env, c.req.param('id')) }));
-  app.post('/api/chats/deleteMany', async (c) => {
-    const { ids } = (await c.req.json()) as { ids?: string[] };
-    const list = ids?.filter(isStr) ?? [];
-    if (list.length === 0) return bad(c, 'ids required');
-    return ok(c, { deletedCount: await ChatBoardEntity.deleteMany(c.env, list), ids: list });
   });
 }

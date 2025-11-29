@@ -36,16 +36,29 @@ export interface ValidationResult {
   checklist: ValidationChecklistItem[];
   remediation: string[];
 }
+export interface ExportResult {
+  type: 'zip' | 'github' | 'cf';
+  blobUrl?: string;
+  commitSha?: string;
+  branch?: string;
+  instructions?: string;
+  wranglerToml?: string;
+}
 export interface JobState {
   id: string;
   input: string | { name: string };
   inputType: 'zip' | 'github';
-  status: 'pending' | 'analyzing' | 'complete' | 'generated' | 'validating' | 'validated' | 'error';
+  status: 'pending' | 'analyzing' | 'complete' | 'generated' | 'validating' | 'validated' | 'exported' | 'error';
   analysis?: AnalysisResult;
   generated?: GeneratedFiles;
   validation?: ValidationResult;
+  export?: ExportResult;
   createdAt: number;
   error?: string;
+}
+export interface HistoryResponse {
+  items: JobState[];
+  next: string | null;
 }
 // Minimal real-world chat example types (shared by frontend and worker)
 export interface User {

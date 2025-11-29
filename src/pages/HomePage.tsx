@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Github, Download, Package, Bot, Zap, FileText, Code2, AlertCircle, CheckCircle, ShieldCheck } from 'lucide-react';
+import { Github, Download, Package, Bot, Zap, FileText, Code2, AlertCircle, CheckCircle, ShieldCheck, Rocket, History, Settings, Copy } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import JSZip from 'jszip';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
@@ -15,13 +14,21 @@ import { UploadDropzone } from '@/components/UploadDropzone';
 import { Stepper } from '@/components/Stepper';
 import { useFileAnalyzer } from '@/hooks/use-file-analyzer';
 import { useGithubOAuth } from '@/hooks/use-github-oauth';
-import type { AnalysisResult } from '@shared/types';
+import type { AnalysisResult, JobState } from '@shared/types';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Link } from 'react-router-dom';
 export function HomePage() {
   const [analysisInput, setAnalysisInput] = useState<File | string | null>(null);
-  const { result, generatedFiles, validationResult, job, isLoading, error, analyze, generate, validate, reset } = useFileAnalyzer();
+  const { result, generatedFiles, validationResult, exportResult, job, isLoading, error, analyze, generate, validate, exportJob, reset, history, loadHistory } = useFileAnalyzer();
   const { login, logout, token, isAuthenticated } = useGithubOAuth();
   const [activeStep, setActiveStep] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [branchName, setBranchName] = useState('');
+  useEffect(() => {
+    loadHistory(undefined, 3);
+  }, [loadHistory]);
   useEffect(() => {
     if (job) {
       switch (job.status) {
@@ -31,6 +38,7 @@ export function HomePage() {
         case 'generated': setActiveStep(2); setProgress(50); break;
         case 'validating': setActiveStep(2); setProgress(65); break;
         case 'validated': setActiveStep(3); setProgress(100); break;
+        case 'exported': setActiveStep(3); setProgress(100); break;
         case 'error':
           setActiveStep(0); setProgress(0);
           toast.error(job.error || 'An unknown error occurred.');
@@ -38,6 +46,13 @@ export function HomePage() {
       }
     }
   }, [job]);
+  useEffect(() => {
+    if (exportResult) {
+      if (exportResult.type === 'github') {
+        toast.success(`Successfully pushed to branch: ${exportResult.branch}`, { description: `Commit SHA: ${exportResult.commitSha}` });
+      }
+    }
+  }, [exportResult]);
   const handleAnalyze = useCallback(async (input: File | string) => {
     if (typeof input === 'string' && !isAuthenticated) {
       toast.error('Please connect your GitHub account to analyze a repository.', { action: { label: 'Login', onClick: () => login() } });
@@ -59,28 +74,17 @@ export function HomePage() {
     toast.info('Validating PWA configuration...', { id: 'validate' });
     await validate(job.id);
   }, [validate, job?.id]);
-  const handleDownloadZip = useCallback(async () => {
-    if (!generatedFiles) {
-      toast.error("No generated files to download.");
-      return;
-    }
-    const zip = new JSZip();
-    generatedFiles.forEach(file => {
-      zip.file(file.path, file.content);
-    });
-    const blob = await zip.generateAsync({ type: "blob" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "pwa-transformed.zip";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, [generatedFiles]);
+  const handleExport = useCallback(async (exportType: 'zip' | 'github' | 'cf') => {
+    if (!job?.id) return;
+    toast.info(`Exporting as ${exportType}...`, { id: 'export' });
+    await exportJob(job.id, exportType, { branch: branchName, token });
+  }, [exportJob, job?.id, branchName, token]);
   const handleReset = () => {
     setAnalysisInput(null);
     reset();
     setActiveStep(0);
     setProgress(0);
+    loadHistory(undefined, 3);
   };
   const renderAnalysisResult = (res: AnalysisResult | null) => {
     if (isLoading && !res && (job?.status === 'analyzing' || job?.status === 'pending')) {
@@ -90,6 +94,7 @@ export function HomePage() {
     if (!res) return <div className="text-center text-muted-foreground py-8"><Bot size={48} className="mx-auto mb-4 opacity-50" /><p className="font-medium">Awaiting Analysis</p><p className="text-sm">Upload a project to get started.</p></div>;
     const showGenerate = job?.status === 'complete';
     const showValidate = job?.status === 'generated';
+    const showExport = job?.status === 'validated';
     return (
       <div className="space-y-4 text-sm">
         <div className="flex items-center justify-between"><h3 className="font-semibold text-base">Detected Stack</h3><Badge variant="secondary">{res.detectedStack}</Badge></div><Separator />
@@ -99,26 +104,66 @@ export function HomePage() {
         <div className="flex justify-between"><span className="text-muted-foreground">PWA Score Est:</span><span className="font-bold text-primary">{res.prePWA_LighthouseEstimate}</span></div>
         {showGenerate && <Button onClick={handleGenerate} disabled={isLoading} className="w-full mt-4">Generate PWA Files</Button>}
         {showValidate && <Button onClick={handleValidate} disabled={isLoading} className="w-full mt-4">Validate PWA Files</Button>}
+        {showExport && (
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button className="w-full mt-4 animate-fade-in"><Rocket className="w-4 h-4 mr-2" /> Export PWA</Button>
+            </SheetTrigger>
+            <SheetContent>
+              <SheetHeader><SheetTitle>Export Options</SheetTitle></SheetHeader>
+              <div className="space-y-4 py-4">
+                <Button onClick={() => handleExport('zip')} className="w-full"><Download className="w-4 h-4 mr-2" /> Download ZIP</Button>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input placeholder="Branch name" defaultValue="pwa-generated" onChange={(e) => setBranchName(e.target.value)} />
+                    <Button onClick={() => handleExport('github')} disabled={!isAuthenticated || isLoading}><Github className="w-4 h-4 mr-2" /> Push to GitHub</Button>
+                  </div>
+                  {!isAuthenticated && <p className="text-xs text-muted-foreground">Connect GitHub account to enable push.</p>}
+                </div>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="w-full" onClick={() => handleExport('cf')}>Get CF Deploy Instructions</Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader><DialogTitle>Cloudflare Deploy Instructions</DialogTitle></DialogHeader>
+                    {exportResult?.type === 'cf' ? (
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="font-semibold mb-2">wrangler.toml</h4>
+                          <pre className="bg-muted p-2 rounded-md text-xs relative"><code>{exportResult.wranglerToml}</code><Button size="icon" variant="ghost" className="absolute top-1 right-1 h-6 w-6" onClick={() => navigator.clipboard.writeText(exportResult.wranglerToml!)}><Copy className="h-3 w-3"/></Button></pre>
+                        </div>
+                        <div>
+                          <h4 className="font-semibold mb-2">Commands</h4>
+                          <pre className="bg-muted p-2 rounded-md text-xs relative"><code>{exportResult.instructions}</code><Button size="icon" variant="ghost" className="absolute top-1 right-1 h-6 w-6" onClick={() => navigator.clipboard.writeText(exportResult.instructions!)}><Copy className="h-3 w-3"/></Button></pre>
+                        </div>
+                      </div>
+                    ) : <Skeleton className="h-32 w-full" />}
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </SheetContent>
+          </Sheet>
+        )}
       </div>
     );
   };
   return (
     <AppLayout>
       <div className="relative min-h-screen bg-background text-foreground">
-        <header className="fixed top-0 left-0 right-0 z-50">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-end py-4">
-            <ThemeToggle className="relative top-0 right-0" />
-            <AnimatePresence>
+        <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center py-3">
+            <div className="flex items-center gap-2">
+              <Link to="/history" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"><History className="w-4 h-4 inline-block mr-1" /> History</Link>
+              <Link to="/settings" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"><Settings className="w-4 h-4 inline-block mr-1" /> Settings</Link>
+            </div>
+            <div className="flex items-center">
+              <ThemeToggle className="relative top-0 right-0" />
               {isAuthenticated ? (
-                <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}>
-                  <Button onClick={logout} variant="outline" className="ml-4"><Github className="w-4 h-4 mr-2" /> Logout</Button>
-                </motion.div>
+                <Button onClick={logout} variant="outline" size="sm" className="ml-4"><Github className="w-4 h-4 mr-2" /> Logout</Button>
               ) : (
-                <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}>
-                  <Button onClick={login} className="ml-4"><Github className="w-4 h-4 mr-2" /> Connect GitHub</Button>
-                </motion.div>
+                <Button onClick={login} size="sm" className="ml-4"><Github className="w-4 h-4 mr-2" /> Connect GitHub</Button>
               )}
-            </AnimatePresence>
+            </div>
           </div>
         </header>
         <div className="absolute inset-0 -z-10 h-full w-full bg-white bg-[linear-gradient(to_right,#f0f0f0_1px,transparent_1px),linear-gradient(to_bottom,#f0f0f0_1px,transparent_1px)] bg-[size:6rem_4rem] dark:bg-background dark:bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)]">
@@ -194,7 +239,7 @@ export function HomePage() {
                         <AccordionItem value="checklist">
                           <AccordionTrigger>Checklist ({validationResult.checklist.length} items)</AccordionTrigger>
                           <AccordionContent><div className="space-y-2">{validationResult.checklist.map(item => (
-                            <div key={item.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/50 text-sm">
+                            <div key={item.id} className="flex items-center gap-3 p-2 rounded-md bg-muted/50 text-sm hover:bg-muted/80 transition-colors">
                               {item.pass ? <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
                               <span>{item.message}</span>
                             </div>))}
@@ -214,21 +259,37 @@ export function HomePage() {
             </div>
             <div className="lg:col-span-1 space-y-8 sticky top-24">
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.6 }}><Card>
-                <CardHeader><CardTitle>3. Analysis & Generation</CardTitle><CardDescription>Review the detected stack and generate PWA files.</CardDescription></CardHeader>
+                <CardHeader><CardTitle>3. Analysis & Actions</CardTitle><CardDescription>Review the detected stack and control the pipeline.</CardDescription></CardHeader>
                 <CardContent>{renderAnalysisResult(result)}</CardContent>
               </Card></motion.div>
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.8 }}><Card className="bg-card/80 backdrop-blur-sm">
-                <CardHeader><CardTitle>4. Export</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  <Button className="w-full" disabled={job?.status !== 'validated' || validationResult?.score !== '100/100'} onClick={handleDownloadZip}><Download className="w-4 h-4 mr-2" /> Download ZIP</Button>
-                  <Button variant="secondary" className="w-full" disabled={job?.status !== 'validated' || validationResult?.score !== '100/100' || !isAuthenticated} onClick={() => toast.info("Push to GitHub coming soon!")}><Github className="w-4 h-4 mr-2" /> Push to GitHub</Button>
-                </CardContent>
-              </Card></motion.div>
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.8 }}>
+                <Card>
+                  <CardHeader><CardTitle>Recent Projects</CardTitle></CardHeader>
+                  <CardContent>
+                    {isLoading && !history ? <Skeleton className="h-32 w-full" /> :
+                      history && history.items.length > 0 ? (
+                        <div className="space-y-2">
+                          {history.items.map((item: JobState) => (
+                            <motion.div key={item.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center p-2 rounded-md hover:bg-secondary transition-colors">
+                              <div className="text-sm">
+                                <p className="font-mono text-xs text-muted-foreground truncate w-32">{item.id}</p>
+                                <p className="font-medium">{typeof item.input === 'string' ? 'GitHub Repo' : item.input.name}</p>
+                              </div>
+                              <Badge variant={item.status === 'validated' || item.status === 'exported' ? 'default' : 'secondary'}>{item.status}</Badge>
+                            </motion.div>
+                          ))}
+                          <Button variant="link" asChild className="w-full"><Link to="/history">View all history</Link></Button>
+                        </div>
+                      ) : <p className="text-sm text-muted-foreground text-center py-4">No recent projects.</p>
+                    }
+                  </CardContent>
+                </Card>
+              </motion.div>
             </div>
           </div>
         </div>
         <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 mt-16 text-center text-muted-foreground/80">
-          <p>Built with ❤️ at Cloudflare</p>
+          <p>Built with ��️ at Cloudflare</p>
         </footer>
         <Toaster richColors closeButton />
       </div>

@@ -1,5 +1,5 @@
-import { IndexedEntity, Env } from "./core-utils";
-import type { User, Chat, ChatMessage, JobState, AnalysisResult, GeneratedFiles, ValidationResult } from "@shared/types";
+import { IndexedEntity, Env, Index } from "./core-utils";
+import type { User, Chat, ChatMessage, JobState, AnalysisResult, GeneratedFiles, ValidationResult, ExportResult } from "@shared/types";
 import { MOCK_CHAT_MESSAGES, MOCK_CHATS, MOCK_USERS } from "@shared/mock-data";
 export class UserEntity extends IndexedEntity<User> {
   static readonly entityName = "user";
@@ -38,6 +38,7 @@ export class JobEntity extends IndexedEntity<JobState> {
     createdAt: 0,
     generated: undefined,
     validation: undefined,
+    export: undefined,
   };
   static async createJob(env: Env, data: { input: string | { name: string; }; inputType: 'zip' | 'github'; }): Promise<JobState> {
     const jobState: JobState = {
@@ -49,12 +50,19 @@ export class JobEntity extends IndexedEntity<JobState> {
     await this.create(env, jobState);
     return jobState;
   }
+  static async clearAll(env: Env): Promise<number> {
+    const jobIndex = new Index<string>(env, this.indexName);
+    const allJobIds = await jobIndex.list();
+    if (allJobIds.length === 0) return 0;
+    return this.deleteMany(env, allJobIds);
+  }
   async updateStatus(
     newStatus: JobState['status'],
     analysis?: AnalysisResult,
     generated?: GeneratedFiles,
     error?: string,
-    validation?: ValidationResult
+    validation?: ValidationResult,
+    exportResult?: ExportResult
   ): Promise<JobState> {
     return this.mutate((s) => ({
       ...s,
@@ -62,7 +70,8 @@ export class JobEntity extends IndexedEntity<JobState> {
       ...(analysis && { analysis }),
       ...(generated && { generated }),
       ...(error && { error }),
-      ...(validation && { validation })
+      ...(validation && { validation }),
+      ...(exportResult && { export: exportResult })
     }));
   }
 }
