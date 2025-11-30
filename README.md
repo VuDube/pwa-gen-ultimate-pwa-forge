@@ -1,6 +1,6 @@
 # PWA_Gen — Ultimate PWA Forge
 
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/VuDube/pwa-gen-ultimate-pwa-forge)
 
 PWA_Gen is a Cloudflare-native Progressive Web App (PWA) generation platform. It is a single-page Vite+React application hosted on Cloudflare Pages with serverless APIs on Cloudflare Workers to ingest code (via ZIP upload, local folder, or GitHub repo), analyze the codebase for framework and build patterns, synthesize and inject standards-compliant PWA infrastructure (manifest, Workbox service worker, offline shell), and run deterministic validations. The platform features an elegant dashboard guiding users through a 4-step pipeline: Analyze → Generate → Validate → Export. Storage uses KV for sessions and OAuth tokens, and D1 for project history and diffs. The runtime is optimized for Cloudflare (Pages for static assets, Workers for APIs, Durable Objects for atomic operations).
 
@@ -148,7 +148,7 @@ This builds the frontend, publishes to Pages, and deploys the worker with bindin
    - KV namespace: `wrangler kv:namespace create pwa_gen_sessions`
    - Bind in `wrangler.toml` (do not modify manually).
 
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/VuDube/pwa-gen-ultimate-pwa-forge)
 
 Custom domain: Update Pages project settings. For production, enable Workers for `/api/*` routing.
 
